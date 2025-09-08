@@ -9,7 +9,7 @@ from urllib.parse import urlparse, urljoin
 from datetime import datetime
 import feedparser
 import threading
-# import requests as pyrequests
+import requests as pyrequests
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your-secret-key-here'
