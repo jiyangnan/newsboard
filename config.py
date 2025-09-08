@@ -1,0 +1,10 @@
+import os
+from supabase import create_client, Client
+
+# Supabase配置
+SUPABASE_URL=https://xbvxwsjkgnuukbmlkenf.supabase.co
+SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhidnh3c2prZ251dWtibWxrZW5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNDY3NTcsImV4cCI6MjA3MjkyMjc1N30.PR0psWgdeJSryGM85-aVDtYm4WLsIOwpMJ6hPsoHzE0
+
+
+# 创建Supabase客户端
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
