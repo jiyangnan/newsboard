@@ -1,0 +1,130 @@
+/* 文章内容完整展示 */
+.article-content-full {
+    padding: 2rem;
+    line-height: 1.8;
+    font-size: 1.1rem;
+    color: #2c3e50;
+}
+
+.article-body {
+    word-wrap: break-word;
+    line-height: 1.8;
+}
+
+.article-body p {
+    margin-bottom: 1.2rem;
+}
+
+.article-body img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 8px;
+    margin: 1.5rem 0;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* 优雅评论表单 */
+.elegant-form {
+    margin-bottom: 2.5rem;
+    padding: 0;
+    background: transparent;
+    border-radius: 0;
+}
+
+.elegant-input-container {
+    position: relative;
+}
+
+.elegant-textarea {
+    width: 100%;
+    min-height: 120px;
+    padding: 1.5rem;
+    border: 2px solid #e8e8e8;
+    border-radius: 16px;
+    font-size: 1rem;
+    resize: vertical;
+    font-family: inherit;
+    background: #fafafa;
+    transition: all 0.3s ease;
+    line-height: 1.6;
+}
+
+.elegant-textarea:focus {
+    outline: none;
+    border-color: #667eea;
+    background: white;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.elegant-textarea::placeholder {
+    color: #a0a0a0;
+    font-style: italic;
+}
+
+.elegant-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 1rem;
+    padding: 0 0.5rem;
+}
+
+.elegant-counter {
+    color: #888;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.elegant-counter.warning {
+    color: #ff6b6b;
+}
+
+.elegant-submit {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    border-radius: 50px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+}
+
+.elegant-submit:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.elegant-submit:disabled {
+    background: #e0e0e0;
+    color: #a0a0a0;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+}
+
+.elegant-submit i {
+    font-size: 0.9rem;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .article-content-full {
+        padding: 1.5rem;
+    }
+    
+    .elegant-textarea {
+        padding: 1.25rem;
+        font-size: 1rem;
+    }
+    
+    .elegant-submit {
+        padding: 0.625rem 1.25rem;
+        font-size: 0.9rem;
+    }
+}

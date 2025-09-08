@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ article.title }} - 资讯详情</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/minimal.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="page-app article-page">
+    <div class="dashboard-container">
+        <nav class="navbar">
+            <div class="nav-brand">
+                <a href="/news" class="back-link">
+                    <i class="fas fa-chevron-left"></i>
+                </a>
+                <span>详情</span>
+            </div>
+            <div class="nav-user">
+                <span class="user-greeting">{{ username }}</span>
+                <a href="/logout" class="logout-link">
+                    <i class="fas fa-sign-out-alt"></i>
+                </a>
+            </div>
+        </nav>
+
+        <main class="dashboard-main article-main">
+            <article class="article-content">
+                <header class="article-header">
+                    <h1 class="article-title">{{ article.title }}</h1>
+                    <div class="article-meta">
+                        <span class="article-source">
+                            <i class="fas fa-globe"></i> {{ article.source or '未知来源' }}
+                        </span>
+                        <span class="article-time">
+                            <i class="far fa-clock"></i> {{ article.published_at.strftime('%Y-%m-%d %H:%M') if article.published_at else '未知时间' }}
+                        </span>
+                        <span class="article-views">
+                            <i class="far fa-eye"></i> <span id="viewCount">{{ article.view_count }}</span> 浏览
+                        </span>
+                    </div>
+                </header>
+
+                {% if article.image_url %}
+                <div class="article-image">
+                    <img src="{{ article.image_url }}" alt="{{ article.title }}">
+                </div>
+                {% endif %}
+
+                <div class="article-content-full">
+                    <div class="article-body">{{ article.summary|safe }}</div>
+                </div>
+
+                <div class="article-actions">
+                    <a href="{{ article.link }}" target="_blank" rel="noopener" class="btn btn-primary">
+                        <i class="fas fa-external-link-alt"></i> 阅读原文
+                    </a>
+                </div>
+            </article>
+
+            <!-- 评论区 -->
+            <section class="comments-section">
+                <h2 class="comments-title">讨论</h2>
+
+                <div class="elegant-form">
+                    <textarea 
+                        id="commentContent" 
+                        class="elegant-textarea" 
+                        placeholder="写下你的想法..."
+                        maxlength="1000"
+                    ></textarea>
+                    <div class="elegant-actions">
+                        <span class="elegant-counter">
+                            <span id="charCount">0</span>
+                        </span>
+                        <button id="submitComment" class="elegant-submit" disabled>
+                            发布
+                        </button>
+                    </div>
+                </div>
+
+                <div id="commentsList" class="comments-list"></div>
+                <div id="noComments" class="no-comments" style="display: none;">
+                    <p>还没有评论</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        const articleId = {{ article.id }};
+        const currentUsername = '{{ username }}';
+    </script>
+    <script src="{{ url_for('static', filename='js/navbar.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/article.js') }}"></script>
+</body>
+</html>
