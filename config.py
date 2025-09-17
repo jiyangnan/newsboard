@@ -1,9 +1,20 @@
 import os
-from supabase import create_client, Client
+from typing import Optional
 
-# Supabase配置
-SUPABASE_URL = "https://xbvxwsjkgnuukbmlkenf.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhidnh3c2prZ251dWtibWxrZW5mIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTczNDY3NTcsImV4cCI6MjA3MjkyMjc1N30.PR0psWgdeJSryGM85-aVDtYm4WLsIOwpMJ6hPsoHzE0"
+try:
+    from supabase import create_client, Client
+except Exception:  # 可选依赖
+    create_client = None
+    Client = None  # type: ignore
 
-# 创建Supabase客户端
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+# Supabase 配置改为读取环境变量，避免在仓库中硬编码密钥
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
+
+def get_supabase_client() -> Optional["Client"]:
+    if not create_client or not SUPABASE_URL or not SUPABASE_KEY:
+        return None
+    try:
+        return create_client(SUPABASE_URL, SUPABASE_KEY)
+    except Exception:
+        return None

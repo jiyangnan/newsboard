@@ -12,8 +12,10 @@ import threading
 import requests as pyrequests
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
+# 基础配置改为读取环境变量，确保生产环境安全、路径一致
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
+default_db = os.environ.get('DATABASE_URL', 'sqlite:///instance/users.db')
+app.config['SQLALCHEMY_DATABASE_URI'] = default_db
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
@@ -134,41 +136,7 @@ def fetch_and_store_rss(limit: int = FETCH_LIMIT):
             if exists:
                 continue
 
-            def extract_image_from_entry(e):
-                # 1) media:content / media:thumbnail
-                for key in ('media_content', 'media_thumbnail'):
-                    try:
-                        arr = getattr(e, key)
-                        if arr and isinstance(arr, list):
-                            for it in arr:
-                                url = it.get('url') if isinstance(it, dict) else None
-                                if url:
-                                    return url
-                    except Exception:
-                        pass
-                # 2) enclosures or links with image type
-                for key in ('enclosures', 'links'):
-                    try:
-                        arr = getattr(e, key)
-                        if arr and isinstance(arr, list):
-                            for it in arr:
-                                if not isinstance(it, dict):
-                                    continue
-                                typev = it.get('type') or ''
-                                href = it.get('href') or it.get('url')
-                                if href and (typev.startswith('image/') or it.get('rel') == 'enclosure'):
-                                    return href
-                    except Exception:
-                        pass
-                # 3) 从 summary 中提取 <img src>
-                if summary:
-                    img_re = re.compile(r'<img[^>]+src=[\"\']([^\"\']+)[\"\']', re.IGNORECASE)
-                    m = img_re.search(summary)
-                    if m:
-                        return m.group(1)
-                return None
-
-            image_url = extract_image_from_entry(entry)
+            image_url = extract_image_from_entry(entry, summary)
 
             item = RSSItem(
                 source=parsed.feed.get('title', feed_url) if hasattr(parsed, 'feed') else feed_url,
@@ -198,6 +166,41 @@ def _normalize_url(url_value: str, base: str = None):
     except Exception:
         pass
     return url_value
+
+def extract_image_from_entry(entry, summary_html: str = None):
+    """从 RSS entry 元素中提取图片 URL（媒体标签、enclosure、summary HTML）。"""
+    # 1) media:content / media:thumbnail
+    for key in ('media_content', 'media_thumbnail'):
+        try:
+            arr = getattr(entry, key)
+            if arr and isinstance(arr, list):
+                for it in arr:
+                    url = it.get('url') if isinstance(it, dict) else None
+                    if url:
+                        return url
+        except Exception:
+            pass
+    # 2) enclosures or links with image type
+    for key in ('enclosures', 'links'):
+        try:
+            arr = getattr(entry, key)
+            if arr and isinstance(arr, list):
+                for it in arr:
+                    if not isinstance(it, dict):
+                        continue
+                    typev = it.get('type') or ''
+                    href = it.get('href') or it.get('url')
+                    if href and (typev.startswith('image/') or it.get('rel') == 'enclosure'):
+                        return href
+        except Exception:
+            pass
+    # 3) 从 summary 中提取 <img src>
+    if summary_html:
+        img_re = re.compile(r'<img[^>]+src=[\"\']([^\"\']+)[\"\']', re.IGNORECASE)
+        m = img_re.search(summary_html)
+        if m:
+            return m.group(1)
+    return None
 
 def fetch_og_image_from_page(article_url: str, timeout_seconds: int = 4):
     """从文章页面抓取 og:image/twitter:image 作为封面图。"""
@@ -277,21 +280,29 @@ def logout():
     session.clear()
     return redirect(url_for('index'))
 
+def _login_required_page():
+    if 'user_id' not in session:
+        return False
+    return True
+
+def _login_required_api():
+    return 'user_id' in session
+
 @app.route('/dashboard')
 def dashboard():
-    if 'user_id' not in session:
+    if not _login_required_page():
         return redirect(url_for('index'))
     return render_template('dashboard.html', username=session['username'])
 
 @app.route('/news')
 def news():
-    if 'user_id' not in session:
+    if not _login_required_page():
         return redirect(url_for('index'))
     return render_template('news.html', username=session['username'])
 
 @app.route('/api/news')
 def api_news():
-    if 'user_id' not in session:
+    if not _login_required_api():
         return jsonify({'authenticated': False}), 401
 
     try:
@@ -312,8 +323,10 @@ def api_news():
         else_=priority_expr
     )
     query = RSSItem.query.order_by(priority_expr.desc(), RSSItem.published_at.desc())
-    total = query.count()
-    items = query.offset(offset).limit(limit).all()
+    # 优化：避免昂贵的 COUNT(*)，改为抓取 limit+1 判断 has_more
+    rows = query.offset(offset).limit(limit + 1).all()
+    has_more = len(rows) > limit
+    items = rows[:limit]
 
     def extract_image_from_html(html_text: str):
         if not html_text:
@@ -355,13 +368,13 @@ def api_news():
 
     return jsonify({
         'items': items_json,
-        'total': total,
-        'has_more': (offset + len(items)) < total
+        'total': None,
+        'has_more': has_more
     })
 
 @app.route('/api/user')
 def get_user():
-    if 'user_id' not in session:
+    if not _login_required_api():
         return jsonify({'authenticated': False}), 401
     
     user = User.query.get(session['user_id'])
@@ -385,13 +398,11 @@ def get_user():
 @app.route('/api/view/<int:article_id>', methods=['POST'])
 def record_view(article_id):
     """记录资讯点击浏览"""
-    if 'user_id' not in session:
+    if not _login_required_api():
         return jsonify({'success': False}), 401
     
     # 获取用户IP
-    user_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
-    if ',' in user_ip:
-        user_ip = user_ip.split(',')[0].strip()
+    user_ip = get_client_ip(request)
     
     # 检查是否已记录过该IP
     existing_view = ArticleView.query.filter_by(
@@ -421,15 +432,13 @@ def record_view(article_id):
 @app.route('/article/<int:article_id>')
 def article_detail(article_id):
     """资讯详情页"""
-    if 'user_id' not in session:
+    if not _login_required_page():
         return redirect(url_for('index'))
     
     article = RSSItem.query.get_or_404(article_id)
     
     # 记录浏览
-    user_ip = request.environ.get('HTTP_X_FORWARDED_FOR', request.remote_addr)
-    if ',' in user_ip:
-        user_ip = user_ip.split(',')[0].strip()
+    user_ip = get_client_ip(request)
     
     existing_view = ArticleView.query.filter_by(
         article_id=article_id,
@@ -449,7 +458,7 @@ def article_detail(article_id):
 @app.route('/api/comments/<int:article_id>')
 def get_comments(article_id):
     """获取文章的评论列表"""
-    if 'user_id' not in session:
+    if not _login_required_api():
         return jsonify({'authenticated': False}), 401
     
     comments = Comment.query.filter_by(article_id=article_id)\
@@ -463,7 +472,7 @@ def get_comments(article_id):
 @app.route('/api/comments/<int:article_id>', methods=['POST'])
 def add_comment(article_id):
     """发表评论"""
-    if 'user_id' not in session:
+    if not _login_required_api():
         return jsonify({'success': False, 'message': '请先登录'}), 401
     
     data = request.get_json()
@@ -491,6 +500,11 @@ def add_comment(article_id):
 
 if __name__ == '__main__':
     with app.app_context():
+        # 确保 instance 目录存在（SQLite 默认路径）
+        try:
+            os.makedirs('instance', exist_ok=True)
+        except Exception:
+            pass
         db.create_all()
         # 尝试为旧表添加 image_url 和 view_count 字段（SQLite）
         try:
@@ -503,21 +517,31 @@ if __name__ == '__main__':
                     conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN view_count INTEGER DEFAULT 0")
         except Exception:
             pass
-        # 启动前先抓取一次
-        try:
-            fetch_and_store_rss(FETCH_LIMIT)
-        except Exception:
-            pass
-        # 启动后台抓取线程（每5分钟一次）
-        def background_fetch_loop():
-            while True:
-                try:
-                    fetch_and_store_rss(FETCH_LIMIT)
-                except Exception:
-                    pass
-                time.sleep(FETCH_INTERVAL_SECONDS)
+        # 可通过环境变量关闭抓取器（如本地开发/测试）
+        if os.environ.get('DISABLE_FETCHER', '').lower() not in ('1', 'true', 'yes'):
+            # 启动前先抓取一次
+            try:
+                fetch_and_store_rss(FETCH_LIMIT)
+            except Exception:
+                pass
+            # 启动后台抓取线程（每5分钟一次）
+            def background_fetch_loop():
+                while True:
+                    try:
+                        fetch_and_store_rss(FETCH_LIMIT)
+                    except Exception:
+                        pass
+                    time.sleep(FETCH_INTERVAL_SECONDS)
 
-        t = threading.Thread(target=background_fetch_loop, daemon=True)
-        t.start()
+            t = threading.Thread(target=background_fetch_loop, daemon=True)
+            t.start()
     # 禁用调试与重载以便后台运行稳定
-    app.run(debug=False, use_reloader=False, host='0.0.0.0', port=8088)
+    port = int(os.environ.get('PORT', '8088'))
+    app.run(debug=False, use_reloader=False, host='0.0.0.0', port=port)
+
+# 通用小工具
+def get_client_ip(req):
+    ip = req.environ.get('HTTP_X_FORWARDED_FOR', req.remote_addr) or ''
+    if ',' in ip:
+        ip = ip.split(',')[0].strip()
+    return ip
