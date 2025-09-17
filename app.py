@@ -10,6 +10,11 @@ from datetime import datetime
 import feedparser
 import threading
 import requests as pyrequests
+try:
+    from dotenv import load_dotenv  # type: ignore
+    load_dotenv()
+except Exception:
+    pass
 
 app = Flask(__name__)
 # 基础配置改为读取环境变量，确保生产环境安全、路径一致
