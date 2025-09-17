@@ -14,8 +14,12 @@ import requests as pyrequests
 app = Flask(__name__)
 # 基础配置改为读取环境变量，确保生产环境安全、路径一致
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret')
-default_db = os.environ.get('DATABASE_URL', 'sqlite:///instance/users.db')
-app.config['SQLALCHEMY_DATABASE_URI'] = default_db
+_db_url_env = os.environ.get('DATABASE_URL')
+if _db_url_env:
+    app.config['SQLALCHEMY_DATABASE_URI'] = _db_url_env
+else:
+    abs_sqlite = os.path.abspath(os.path.join('instance', 'users.db'))
+    app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{abs_sqlite}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db = SQLAlchemy(app)
