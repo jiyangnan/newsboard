@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, session, render_template, redirect, u
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import or_, case
+from collections import defaultdict
 import os
 import time
 import re
@@ -83,11 +84,13 @@ class Comment(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     content = db.Column(db.Text, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+    parent_id = db.Column(db.Integer, db.ForeignKey('comment.id'), nullable=True)
+
     # 关联关系
     user = db.relationship('User', backref=db.backref('comments', lazy=True))
     article = db.relationship('RSSItem', backref=db.backref('comments', lazy=True))
-    
+    parent = db.relationship('Comment', remote_side=[id], backref=db.backref('replies', lazy='select'))
+
     def to_dict(self):
         return {
             'id': self.id,
@@ -95,17 +98,20 @@ class Comment(db.Model):
             'user_id': self.user_id,
             'username': self.user.username,
             'content': self.content,
-            'created_at': self.created_at.isoformat()
+            'created_at': self.created_at.isoformat(),
+            'parent_id': self.parent_id,
+            'parent_username': self.parent.user.username if self.parent and self.parent.user else None,
+            'replies': []
         }
 
-# RSS 源配置：可通过环境变量 RSS_FEED_URLS 设置，逗号分隔；默认使用少数派官方与 RSSHub（可提供更多条目）
-DEFAULT_FEEDS = 'https://sspai.com/feed,https://rsshub.app/sspai/index?limit=100,https://rsshub.nodejs.cn/sspai/index?limit=100,https://rsshub.rssforever.com/sspai/index?limit=100'
+# RSS 源配置：可通过环境变量 RSS_FEED_URLS 设置，逗号分隔；默认使用少数派、掘金和腾讯新闻的RSS源
+DEFAULT_FEEDS = 'https://sspai.com/feed,https://rsshub.app/sspai/index?limit=50,https://rsshub.app/juejin/category/frontend?limit=50,https://rsshub.app/news/qq/news?limit=50'
 FEED_URLS = [u.strip() for u in os.environ.get('RSS_FEED_URLS', DEFAULT_FEEDS).split(',') if u.strip()]
 RSS_ONLY_DOMAIN = os.environ.get('RSS_ONLY_DOMAIN', '').strip()
 
 # 抓取条数与间隔
 FETCH_LIMIT = int(os.environ.get('RSS_FETCH_LIMIT', '1000'))
-FETCH_INTERVAL_SECONDS = int(os.environ.get('RSS_FETCH_INTERVAL_SECONDS', '300'))  # 5分钟
+FETCH_INTERVAL_SECONDS = int(os.environ.get('RSS_FETCH_INTERVAL_SECONDS', '60'))  # 1分钟
 
 def _parse_struct_time_to_datetime(struct_time_value):
     if not struct_time_value:
@@ -210,6 +216,13 @@ def extract_image_from_entry(entry, summary_html: str = None):
         if m:
             return m.group(1)
     return None
+
+def get_client_ip(req):
+    ip = req.environ.get('HTTP_X_FORWARDED_FOR', req.remote_addr) or ''
+    if ',' in ip:
+        ip = ip.split(',')[0].strip()
+    return ip
+
 
 def fetch_og_image_from_page(article_url: str, timeout_seconds: int = 4):
     """从文章页面抓取 og:image/twitter:image 作为封面图。"""
@@ -473,9 +486,38 @@ def get_comments(article_id):
     comments = Comment.query.filter_by(article_id=article_id)\
                            .order_by(Comment.created_at.desc())\
                            .all()
-    
+
+    if not comments:
+        return jsonify({'comments': [], 'total_count': 0})
+
+    comment_map = {comment.id: comment for comment in comments}
+    children_map: dict[int, list[Comment]] = defaultdict(list)
+    top_level: list[Comment] = []
+
+    for comment in comments:
+        if comment.parent_id and comment.parent_id in comment_map:
+            children_map[comment.parent_id].append(comment)
+        else:
+            top_level.append(comment)
+
+    def serialize(item: Comment):
+        data = item.to_dict()
+        replies = children_map.get(item.id, [])
+        if replies:
+            replies.sort(key=lambda c: c.created_at or datetime.min, reverse=True)
+            data['replies'] = [serialize(child) for child in replies]
+        else:
+            data['replies'] = []
+        if item.parent_id and item.parent_id in comment_map:
+            parent_comment = comment_map[item.parent_id]
+            data['parent_username'] = parent_comment.user.username
+        return data
+
+    top_level.sort(key=lambda c: c.created_at or datetime.min, reverse=True)
+
     return jsonify({
-        'comments': [comment.to_dict() for comment in comments]
+        'comments': [serialize(comment) for comment in top_level],
+        'total_count': len(comments)
     })
 
 @app.route('/api/comments/<int:article_id>', methods=['POST'])
@@ -486,21 +528,36 @@ def add_comment(article_id):
     
     data = request.get_json()
     content = data.get('content', '').strip()
-    
+    parent_id_raw = data.get('parent_id')
+    parent_comment = None
+    parent_id = None
+
     if not content:
         return jsonify({'success': False, 'message': '评论内容不能为空'}), 400
     
     if len(content) > 1000:
         return jsonify({'success': False, 'message': '评论内容过长'}), 400
-    
+
+    if parent_id_raw is not None:
+        try:
+            parent_id = int(parent_id_raw)
+        except (TypeError, ValueError):
+            return jsonify({'success': False, 'message': '回复对象无效'}), 400
+
+        parent_comment = Comment.query.filter_by(id=parent_id, article_id=article_id).first()
+        if not parent_comment:
+            return jsonify({'success': False, 'message': '回复的评论不存在或已被删除'}), 400
+
     comment = Comment(
         article_id=article_id,
         user_id=session['user_id'],
-        content=content
+        content=content,
+        parent_id=parent_id
     )
     
     db.session.add(comment)
     db.session.commit()
+    db.session.refresh(comment)
     
     return jsonify({
         'success': True,
@@ -526,6 +583,14 @@ if __name__ == '__main__':
                     conn.exec_driver_sql(f"ALTER TABLE {table_name} ADD COLUMN view_count INTEGER DEFAULT 0")
         except Exception:
             pass
+
+        try:
+            with db.engine.begin() as conn:
+                cols = [r[1] for r in conn.exec_driver_sql("PRAGMA table_info(comment)").fetchall()]
+                if 'parent_id' not in cols:
+                    conn.exec_driver_sql("ALTER TABLE comment ADD COLUMN parent_id INTEGER REFERENCES comment(id)")
+        except Exception:
+            pass
         # 可通过环境变量关闭抓取器（如本地开发/测试）
         if os.environ.get('DISABLE_FETCHER', '').lower() not in ('1', 'true', 'yes'):
             # 启动前先抓取一次
@@ -533,7 +598,7 @@ if __name__ == '__main__':
                 fetch_and_store_rss(FETCH_LIMIT)
             except Exception:
                 pass
-            # 启动后台抓取线程（每5分钟一次）
+            # 启动后台抓取线程（默认每60秒一次，可通过环境变量调整）
             def background_fetch_loop():
                 while True:
                     try:
@@ -547,10 +612,3 @@ if __name__ == '__main__':
     # 禁用调试与重载以便后台运行稳定
     port = int(os.environ.get('PORT', '8088'))
     app.run(debug=False, use_reloader=False, host='0.0.0.0', port=port)
-
-# 通用小工具
-def get_client_ip(req):
-    ip = req.environ.get('HTTP_X_FORWARDED_FOR', req.remote_addr) or ''
-    if ',' in ip:
-        ip = ip.split(',')[0].strip()
-    return ip

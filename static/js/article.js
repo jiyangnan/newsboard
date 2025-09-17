@@ -8,6 +8,9 @@ function initializeArticle() {
     updateViewCount();
 }
 
+let activeReplyForm = null;
+const COMMENT_MAX_LENGTH = 1000;
+
 // 加载评论列表
 async function loadComments() {
     try {
@@ -18,9 +21,10 @@ async function loadComments() {
         
         const data = await response.json();
         const comments = data.comments || [];
-        
+        const totalCount = typeof data.total_count === 'number' ? data.total_count : comments.length;
+
         renderComments(comments);
-        updateCommentsCount(comments.length);
+        updateCommentsCount(totalCount);
         
     } catch (error) {
         console.error('加载评论失败:', error);
@@ -32,6 +36,7 @@ async function loadComments() {
 function renderComments(comments) {
     const commentsList = document.getElementById('commentsList');
     const noComments = document.getElementById('noComments');
+    activeReplyForm = null;
     
     if (comments.length === 0) {
         commentsList.innerHTML = '';
@@ -43,27 +48,176 @@ function renderComments(comments) {
     commentsList.innerHTML = '';
     
     comments.forEach(comment => {
-        const commentElement = createCommentElement(comment);
+        const commentElement = createCommentElement(comment, 0);
         commentsList.appendChild(commentElement);
     });
 }
 
 // 创建单个评论元素
-function createCommentElement(comment) {
+function createCommentElement(comment, depth = 0) {
     const div = document.createElement('div');
-    div.className = 'comment-item';
+    div.className = depth === 0 ? 'comment-item' : 'comment-item comment-reply-item';
+    div.dataset.commentId = comment.id;
     
     const time = new Date(comment.created_at).toLocaleString('zh-CN');
+    const safeUsername = escapeHtml(comment.username || '未知用户');
+    const safeContent = escapeHtml(comment.content || '');
+    const parentName = comment.parent_username && depth > 0 ? escapeHtml(comment.parent_username) : null;
+    const parentHtml = parentName ? `<div class="comment-parent">回复 <span class="comment-parent-name">@${parentName}</span></div>` : '';
     
     div.innerHTML = `
         <div class="comment-header">
-            <span class="comment-author">${escapeHtml(comment.username)}</span>
+            <span class="comment-author">${safeUsername}</span>
             <span class="comment-time">${time}</span>
         </div>
-        <div class="comment-content">${escapeHtml(comment.content)}</div>
+        <div class="comment-content">
+            ${parentHtml}
+            <div class="comment-text">${safeContent}</div>
+        </div>
     `;
     
+    const actions = document.createElement('div');
+    actions.className = 'comment-actions';
+
+    const replyButton = document.createElement('button');
+    replyButton.type = 'button';
+    replyButton.className = 'comment-action-button';
+    replyButton.innerHTML = '<i class="fas fa-reply"></i> 回复';
+    replyButton.addEventListener('click', () => toggleReplyForm(div, comment));
+
+    actions.appendChild(replyButton);
+    div.appendChild(actions);
+
+    if (Array.isArray(comment.replies) && comment.replies.length > 0) {
+        const repliesWrapper = document.createElement('div');
+        repliesWrapper.className = 'comment-replies';
+        comment.replies.forEach(reply => {
+            repliesWrapper.appendChild(createCommentElement(reply, depth + 1));
+        });
+        div.appendChild(repliesWrapper);
+    }
+    
     return div;
+}
+
+function toggleReplyForm(commentElement, comment) {
+    const existingForm = commentElement.querySelector('.reply-form');
+    if (existingForm) {
+        existingForm.remove();
+        if (activeReplyForm && activeReplyForm.element === commentElement) {
+            activeReplyForm = null;
+        }
+        return;
+    }
+
+    if (activeReplyForm && activeReplyForm.form.parentNode) {
+        activeReplyForm.form.remove();
+        activeReplyForm = null;
+    }
+
+    const form = createReplyForm(comment);
+    const repliesBlock = commentElement.querySelector('.comment-replies');
+    if (repliesBlock) {
+        commentElement.insertBefore(form, repliesBlock);
+    } else {
+        commentElement.appendChild(form);
+    }
+
+    activeReplyForm = { element: commentElement, form };
+
+    const textarea = form.querySelector('textarea');
+    if (textarea) {
+        textarea.focus();
+    }
+}
+
+function createReplyForm(comment) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'reply-form';
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'reply-textarea';
+    textarea.placeholder = `回复 ${comment.username || ''}...`;
+    textarea.maxLength = COMMENT_MAX_LENGTH;
+
+    const actions = document.createElement('div');
+    actions.className = 'reply-actions';
+
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'reply-cancel';
+    cancelButton.textContent = '取消';
+
+    const submitButton = document.createElement('button');
+    submitButton.type = 'button';
+    submitButton.className = 'reply-submit';
+    submitButton.innerHTML = '<i class="fas fa-paper-plane"></i> 发布';
+
+    cancelButton.addEventListener('click', () => {
+        wrapper.remove();
+        if (activeReplyForm && activeReplyForm.form === wrapper) {
+            activeReplyForm = null;
+        }
+    });
+
+    submitButton.addEventListener('click', () => submitReply(comment.id, textarea, submitButton));
+
+    actions.appendChild(cancelButton);
+    actions.appendChild(submitButton);
+
+    wrapper.appendChild(textarea);
+    wrapper.appendChild(actions);
+
+    return wrapper;
+}
+
+async function submitReply(parentId, textarea, submitButton) {
+    const content = textarea.value.trim();
+
+    if (!content) {
+        showError('回复内容不能为空');
+        return;
+    }
+
+    if (content.length > COMMENT_MAX_LENGTH) {
+        showError('回复内容过长');
+        return;
+    }
+
+    const originalHtml = submitButton.innerHTML;
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 发布中...';
+
+    try {
+        const response = await fetch(`/api/comments/${articleId}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ content, parent_id: parentId })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showSuccess('回复成功！');
+
+            if (activeReplyForm && activeReplyForm.form.contains(textarea)) {
+                activeReplyForm.form.remove();
+                activeReplyForm = null;
+            }
+
+            await loadComments();
+        } else {
+            showError(data.message || '回复失败');
+        }
+    } catch (error) {
+        console.error('回复失败:', error);
+        showError('回复失败，请稍后重试');
+    } finally {
+        submitButton.disabled = false;
+        submitButton.innerHTML = originalHtml;
+    }
 }
 
 // 设置评论表单
@@ -71,19 +225,20 @@ function setupCommentForm() {
     const commentTextarea = document.getElementById('commentContent');
     const submitButton = document.getElementById('submitComment');
     const charCount = document.getElementById('charCount');
+    const warningThreshold = COMMENT_MAX_LENGTH - 100;
     
     // 字数统计和限制
     commentTextarea.addEventListener('input', function() {
         const length = this.value.length;
         charCount.textContent = length;
         
-        if (length > 900) {
+        if (length > warningThreshold) {
             charCount.classList.add('warning');
         } else {
             charCount.classList.remove('warning');
         }
         
-        submitButton.disabled = length === 0 || length > 1000;
+        submitButton.disabled = length === 0 || length > COMMENT_MAX_LENGTH;
     });
     
     // 提交评论
@@ -110,13 +265,13 @@ async function submitComment() {
         return;
     }
     
-    if (content.length > 1000) {
+    if (content.length > COMMENT_MAX_LENGTH) {
         showError('评论内容过长');
         return;
     }
-    
+
     submitButton.disabled = true;
-    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 发表中...';
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 发布中...';
     
     try {
         const response = await fetch(`/api/comments/${articleId}`, {
@@ -133,6 +288,8 @@ async function submitComment() {
             // 清空输入框
             document.getElementById('commentContent').value = '';
             document.getElementById('charCount').textContent = '0';
+            document.getElementById('charCount').classList.remove('warning');
+            submitButton.disabled = true;
             
             // 重新加载评论
             await loadComments();
@@ -154,7 +311,7 @@ async function submitComment() {
         showError('发表评论失败，请稍后重试');
     } finally {
         submitButton.disabled = false;
-        submitButton.innerHTML = '<i class="fas fa-paper-plane"></i> 发表评论';
+        submitButton.innerHTML = '发布';
     }
 }
 
