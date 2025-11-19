@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>4D Tesseract Visualization</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+
+<body>
+  <div id="app">
+    <div id="controls">
+      <h1>4D Tesseract</h1>
+      <p>This is a 3D shadow of a 4D hypercube (Tesseract).</p>
+      <p>Use the sliders to rotate the object in 4D planes. Notice how rotations involving the W axis (XW, YW, ZW) cause
+        the object to appear to turn inside-out. This is because we are viewing a 3D cross-section/projection of the 4D
+        object.</p>
+
+      <div class="control-group">
+        <label>XY Plane <span id="val-xy" class="value-display">0°</span></label>
+        <input type="range" id="rot-xy" min="0" max="360" value="0">
+      </div>
+      <div class="control-group">
+        <label>XZ Plane <span id="val-xz" class="value-display">0°</span></label>
+        <input type="range" id="rot-xz" min="0" max="360" value="0">
+      </div>
+      <div class="control-group">
+        <label>XW Plane <span id="val-xw" class="value-display">0°</span></label>
+        <input type="range" id="rot-xw" min="0" max="360" value="0">
+      </div>
+      <div class="control-group">
+        <label>YZ Plane <span id="val-yz" class="value-display">0°</span></label>
+        <input type="range" id="rot-yz" min="0" max="360" value="0">
+      </div>
+      <div class="control-group">
+        <label>YW Plane <span id="val-yw" class="value-display">0°</span></label>
+        <input type="range" id="rot-yw" min="0" max="360" value="0">
+      </div>
+      <div class="control-group">
+        <label>ZW Plane <span id="val-zw" class="value-display">0°</span></label>
+        <input type="range" id="rot-zw" min="0" max="360" value="0">
+      </div>
+
+      <div class="control-group">
+        <label>Auto Rotate</label>
+        <input type="checkbox" id="auto-rotate" checked>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
